@@ -1,39 +1,42 @@
 import asyncio
 import random
-from playwright.async_api import async_playwright
 from playwright_stealth import stealth_async
 
-async def run_vote_logic(browser, proxy, target_url, candidate_name):
-    # 1. Setup Context with high-resolution fingerprinting
+async def run_vote_logic(browser, target_url, candidate_name):
+    # 1. Create a completely isolated incognito context (No Cookies/Cache)
     context = await browser.new_context(
-        proxy={"server": proxy} if proxy else None,
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/123.0.0.0 Safari/537.36",
+        # Force a fresh 'Identity' in the headers
+        extra_http_headers={
+            "Accept-Language": "en-US,en;q=0.9",
+            "Referer": "https://google.com/",
+            "DNT": "1" # Do Not Track header
+        }
     )
+    
     page = await context.new_page()
     await stealth_async(page)
 
-    # 2. Optimization: Block images and media to speed up voting
-    await page.route("*/.{png,jpg,jpeg,svg,mp4,css}", lambda route: route.abort())
-
     try:
-        # 3. Go to URL - Using 'commit' instead of 'networkidle' for speed
-        await page.goto(target_url, wait_until="commit", timeout=20000)
+        # 2. Fast Navigation
+        await page.goto(target_url, wait_until="domcontentloaded", timeout=15000)
         
-        # 4. Wait for the candidate text to appear
-        # Strawpoll usually renders options in labels or spans
-        selector = f"text={candidate_name}"
-        await page.wait_for_selector(selector, timeout=5000)
+        # 3. Dynamic Selector Logic
+        # We find the candidate by searching for the text within the poll options
+        candidate_selector = f"text={candidate_name}"
+        await page.wait_for_selector(candidate_selector, timeout=5000)
+        await page.click(candidate_selector)
         
-        # 5. Execute Vote
-        await page.click(selector)
+        # 4. Submit Vote
+        # Strawpoll uses different IDs; this selector targets common button patterns
+        vote_btn = page.locator('button:has-text("Vote"), .button-vote, #vote-button')
+        await vote_btn.click()
         
-        # Target the vote button by ID or class (Strawpoll usually uses 'button-vote')
-        await page.click("button.button-vote, #vote-button, .vote-button")
-        
-        # 6. Optional: Verify success message
-        # await page.wait_for_selector(".success-message", timeout=2000)
+        # Give the server a moment to register the vote before closing
+        await asyncio.sleep(1)
         return True
-    except Exception as e:
+    except Exception:
         return False
     finally:
+        # Critical: Close the context to wipe all session data
         await context.close()
