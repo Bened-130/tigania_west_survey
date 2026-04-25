@@ -24,7 +24,7 @@ async def main():
         while time.time() < end_time:
             iteration_start = time.time()
             
-            # Since no proxies, we run one at a time to avoid instant IP banning
+        
             # (Running 2 per second on one IP will get you banned in seconds)
             success = await run_vote_logic(browser, None, URL, CANDIDATE)
             
